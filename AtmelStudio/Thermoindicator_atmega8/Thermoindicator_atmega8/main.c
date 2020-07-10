@@ -32,15 +32,17 @@ char *disp;
 
 void mc_init();
 void display_update(char *disp);
-void check_temp();
+void check_temp(char interrupt_n);
 
-ISR(TIMER0_OVF_vect)
+ISR(TIMER1_OVF_vect)
 {
-	check_temp();
+	static char interupt_n;
+	
+	interupt_n++;
+	check_temp(interupt_n);
 }
 
 
- 
 void mc_init()
 {
 	disp = (char*)malloc(sizeof(char) * 4);
@@ -50,12 +52,13 @@ void mc_init()
 	DDRB = 0xFF;
 	DDRC = 0x0F;
 	DDRD = 0x01;
-/*	
-	TCCR0 |= (1<<2); TCCR0 &= ~(1<<1 | 1<<0);
-	TIMSK |= (1<<0);
-	TCNT0 = 0;
-	sei();
 	
+	TCCR1B |= (1<<1); TCCR1B &= ~(1<<2 | 1<<0); // interruptions occur each 0,5s
+	TIMSK |= (1<<2);
+	TCNT1 = 0;
+	sei();
+
+/*	
 	ADMUX |= (1<<REFS1) | (1<<REFS0); // set IVR 2,56 V
 	ADMUX &= ~(1<<ADLAR); // right adjust result 
 	ADMUX &= ~0b1111;
@@ -101,7 +104,7 @@ void onewire_set_output()
 
 void onewire_set_input()
 {
-	PORTD &= ~(ONEWIRE_PIN); // (re)set pulling up
+	PORTD &= ~(ONEWIRE_PIN);
 	DDRD &= ~(ONEWIRE_PIN);
 }
 
@@ -114,7 +117,7 @@ int onewire_reset()
 {
 	onewire_set_output();
 	onewire_low();
-	_delay_us(640); // Пауза 480..960 мкс
+	_delay_us(640);
 	onewire_high();
 	_delay_us(2);
 	onewire_set_input();
@@ -133,14 +136,17 @@ int onewire_reset()
     return 0;
 }
 
-void onewire_send_bit(char bit) {
+void onewire_send_bit(char bit) 
+{
 	onewire_set_output();
 	onewire_low();
-	if (bit) {
+	if (bit) 
+	{
 		_delay_us(5); // Низкий импульс, от 1 до 15 мкс (с учётом времени восстановления уровня)
 		onewire_high();
 		_delay_us(90); // Ожидание до завершения таймслота (не менее 60 мкс)
-		} else {
+	} else 
+	{
 		_delay_us(90); // Низкий уровень на весь таймслот (не менее 60 мкс, не более 120 мкс)
 		onewire_high();
 		_delay_us(5); // Время восстановления высокого уровеня на шине + 1 мс (минимум)
@@ -149,14 +155,17 @@ void onewire_send_bit(char bit) {
 
 // Отправляет один байт, восемь подряд бит, младший бит вперёд
 // b - отправляемое значение
-void onewire_send(char b) {
-	for (char p = 8; p; p--) {
+void onewire_send(char b)
+{
+	for (char p = 8; p; p--) 
+	{
 		onewire_send_bit(b & 1);
 		b >>= 1;
 	}
 }
 
-char onewire_read_bit() {
+char onewire_read_bit() 
+{
 	onewire_set_output();
 	onewire_low();
 	_delay_us(2); // Длительность низкого уровня, минимум 1 мкс
@@ -168,9 +177,11 @@ char onewire_read_bit() {
 }
 
 // Читает один байт, переданный устройством, младший бит вперёд, возвращает прочитанное значение
-char onewire_read() {
+char onewire_read() 
+{
 	char r = 0;
-	for (char p = 8; p; p--) {
+	for (char p = 8; p; p--) 
+	{
 		r >>= 1;
 		if (onewire_read_bit())
 		r |= 0x80;
@@ -181,22 +192,33 @@ char onewire_read() {
 int main(void)
 {
 	mc_init();
-	
+	while (1)
+	{	
+		display_update(disp);
+	}
+}
+
+
+char convertion_init()
+{
 	if(!onewire_reset())
 	{
-		disp[0] = d_minus;
+		return (0);
 	}
 	else
 	{
 		onewire_send(0xCC);
 		_delay_us(10);
 		onewire_send(0x44);
-		//disp[0] = d_digits[8]; // Response succeed
-		_delay_ms(900);
+		return (1);
 	}
+}
+
+void convertion_get_res()
+{
 	if(!onewire_reset())
 	{
-		disp[0] = d_minus;
+		return ;
 	}
 	else
 	{
@@ -206,26 +228,36 @@ int main(void)
 		_delay_us(5);
 		char scratchpad[9];
 		char b = 0;
-		for (int i = 0; i < 9; i++) {
+		for (int i = 0; i < 9; i++) 
+		{
 			b = onewire_read();
 			scratchpad[i] = b;
 		}
 		int t = (scratchpad[1] << 8) | scratchpad[0];
+		t /= 16;
 		disp[0] = d_digits[(t >> 12) & 0b1111];
 		disp[1] = d_digits[(t >> 8) & 0b1111];
 		disp[2] = d_digits[(t >> 4) & 0b1111];
 		disp[3] = d_digits[(t >> 0) & 0b1111];
 	}
-	
-	
-	while (1)
-	{	
-		display_update(disp);
-	}
 }
 
-
-void check_temp()
+void check_temp(char interrupt_n)
 {
-
+	static char was_convertion;
+	static char offset;
+	
+	if (!was_convertion)
+	{
+		if (convertion_init())
+		{
+			was_convertion = 1;
+			offset = interrupt_n % 2;
+		}
+	}
+	else if (!((interrupt_n - offset) % 2))
+	{
+		convertion_get_res();
+		was_convertion = 0;
+	}
 }
