@@ -28,6 +28,7 @@ const char d_digits[] = {
 
 const char d_minus = 0b11111101;
 const char d_empty = 0b11111111;
+const char d_dot = 0b11111110;
 char *disp;
 
 void mc_init();
@@ -57,16 +58,6 @@ void mc_init()
 	TIMSK |= (1<<2);
 	TCNT1 = 0;
 	sei();
-
-/*	
-	ADMUX |= (1<<REFS1) | (1<<REFS0); // set IVR 2,56 V
-	ADMUX &= ~(1<<ADLAR); // right adjust result 
-	ADMUX &= ~0b1111;
-	ADMUX |= 0b0100; // use ADC4 pin
-	ADCSRA |= (1<<ADEN); // Enable ADC
-	ADCSRA &= ~(1<<ADPS2);
-	ADCSRA |= (1<<ADPS0) | (1<<ADPS1); // discretization frequency 125 kHz
-*/
 }
 
 void display_update(char *disp)
@@ -214,6 +205,32 @@ char convertion_init()
 	}
 }
 
+void set_display(int16_t t)
+{
+	char sign = 0;
+	int digit = 0;
+	char frac = 0;
+	
+	if (t < 0)
+	{
+		sign = 1;
+		t = -t;
+	}
+	frac = t & 0xF;
+	t /= 16;
+	disp[digit++] = (t / 100) ? d_digits[t / 100] : d_empty;
+	disp[digit++] = (t / 10 % 10) || (t / 100) ? d_digits[t / 10 % 10] : d_empty;
+	disp[digit++] = d_digits[t % 10] & d_dot;
+	disp[digit] = d_digits[frac * 10 / 16];
+	if (sign)
+	{
+		if (disp[1] == d_empty)
+			disp[1] = d_minus;
+		else
+			disp[0] = d_minus;
+	}
+}
+
 void convertion_get_res()
 {
 	if(!onewire_reset())
@@ -233,12 +250,8 @@ void convertion_get_res()
 			b = onewire_read();
 			scratchpad[i] = b;
 		}
-		int t = (scratchpad[1] << 8) | scratchpad[0];
-		t /= 16;
-		disp[0] = d_digits[(t >> 12) & 0b1111];
-		disp[1] = d_digits[(t >> 8) & 0b1111];
-		disp[2] = d_digits[(t >> 4) & 0b1111];
-		disp[3] = d_digits[(t >> 0) & 0b1111];
+		int16_t t = (scratchpad[1] << 8) | scratchpad[0];
+		set_display(t);
 	}
 }
 
