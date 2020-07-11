@@ -22,4 +22,6 @@ PCB layout does not implemented.
 
 You can see [pictures](./Pictures).
 
+You can see [source code](./AtmelStudio/Thermoindicator_atmega8/Thermoindicator_atmega8).
+
 For more information you can see [report] (will be added soon).
